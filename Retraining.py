@@ -106,7 +106,7 @@ json.dump(idx_to_labels, open(images_path+'/09.3 pet_labels.json', 'w'))
 # 保存模型
 model.save(images_path+'/09.3 retrained pet recognizer.h5')
 
-'''
+'''InceptionV3的结构
 __________________________________________________________________________________________________
 Layer (type)                    Output Shape         Param #     Connected to                     
 ==================================================================================================
