@@ -101,8 +101,10 @@ model.fit(
 )
 
 ### 模型的保存
-json.dump(idx_to_labels, open('zoo/09.3 pet_labels.json', 'w'))
-model.save('zoo/09.3 retrained pet recognizer.h5')
+# 保存索引-标签 翻译字典
+json.dump(idx_to_labels, open(images_path+'/09.3 pet_labels.json', 'w'))
+# 保存模型
+model.save(images_path+'/09.3 retrained pet recognizer.h5')
 
 '''
 __________________________________________________________________________________________________
