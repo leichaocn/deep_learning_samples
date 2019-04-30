@@ -106,7 +106,20 @@ json.dump(idx_to_labels, open(images_path+'/09.3 pet_labels.json', 'w'))
 # 保存模型
 model.save(images_path+'/09.3 retrained pet recognizer.h5')
 
-'''InceptionV3的结构
+### 模型的使用
+# 加载模型
+from keras.models import load_model
+my_keras_model=load_model(os.getcwd()+'/data/pet_images_lite/09.3 retrained pet recognizer.h5')
+class_labels=json.load(open(os.getcwd()+'/data/pet_images_lite/09.3 pet_labels.json'))
+# 拿到图片数据做成向量
+x_pet=pet_images_fn[1]
+print('x_pet=',x_pet)
+img_vector = np.asarray([fetch_pet(x_pet)])
+# 使用模型预测
+result=my_keras_model.predict(img_vector)
+
+
+'''参考：InceptionV3的结构
 __________________________________________________________________________________________________
 Layer (type)                    Output Shape         Param #     Connected to                     
 ==================================================================================================
