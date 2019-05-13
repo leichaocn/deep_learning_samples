@@ -1,0 +1,75 @@
+"""
+ Detecting Multiple Images Using a Pretrained
+Classiier
+
+"""
+
+from keras.applications import vgg16
+from keras import backend as K
+from keras.preprocessing.image import load_img, img_to_array
+from keras.models import Model, load_model
+from keras.layers import Flatten, Dense, Input, TimeDistributed
+import numpy as np
+from collections import Counter, defaultdict
+from keras.preprocessing import image
+from PIL import ImageDraw
+
+from scipy.misc import imread, imresize, imsave, fromimage, toimage
+
+try:
+    from io import BytesIO
+except ImportError:
+    from StringIO import StringIO as BytesIO
+import PIL
+from IPython.display import clear_output, Image, display, HTML
+
+
+
+
+def showarray(a, fmt='jpeg'):
+    f = BytesIO()
+    PIL.Image.fromarray(a).save(f, fmt)
+    display(Image(data=f.getvalue()))
+
+def preprocess_image(image_path, target_size=None):
+    img = load_img(image_path, target_size=target_size)
+    img = img_to_array(img)
+    img = np.expand_dims(img, axis=0)
+    img = vgg16.preprocess_input(img)
+    return img
+
+def deprocess_image(x, w, h):
+    x = x.copy()
+    if K.image_data_format() == 'channels_first':
+        x = x.reshape((3, w, h))
+        x = x.transpose((1, 2, 0))
+    else:
+        x = x.reshape((w, h, 3))
+    # Remove zero-center by mean pixel
+    x[:, :, 0] += 103.939
+    x[:, :, 1] += 116.779
+    x[:, :, 2] += 123.68
+    # 'BGR'->'RGB'
+    x = x[:, :, ::-1]
+    x = np.clip(x, 0, 255).astype('uint8')
+    return x
+    
+
+### 下载vgg16模型
+base_model = vgg16.VGG16(weights='imagenet', include_top=True)
+base_model.summary()
+
+### 预处理猫狗图片
+cat_dog = preprocess_image('data/cat_dog.jpg', target_size=(224, 224))
+preds = base_model.predict(cat_dog)
+print('Predicted:', vgg16.decode_predictions(preds, top=3)[0])
+
+###
+cat_dog_img = image.load_img('data/cat_dog.jpg', target_size=(448, 448))
+draw = ImageDraw.Draw(cat_dog_img)
+draw.rectangle((192, 96, 416, 320), outline=(0, 0, 0))
+draw.rectangle((0, 192, 224, 416), outline=(0, 0, 0))
+#cat_dog_img
+
+cat_dog2 = preprocess_image('data/cat_dog.jpg', target_size=(448, 448))
+showarray(deprocess_image(cat_dog2, 448, 448))
