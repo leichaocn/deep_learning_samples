@@ -154,3 +154,241 @@ Trainable params: 35,085
 Non-trainable params: 0
 __________________________________________________________________________________________________
 """
+
+from keras.callbacks import TensorBoard
+
+# 训练100轮，大概数小时。如果是cpu的话。
+autoencoder.fit(x_train, x_train,
+                epochs=100,
+                batch_size=128,
+                shuffle=True,
+                validation_data=(x_test, x_test),
+                callbacks=[TensorBoard(log_dir='/tmp/autoencoder')])
+
+# 随机取25张测试图片，进行编码解码，并查看解码后的输出形状
+cols = 25
+idx = np.random.randint(x_test.shape[0], size=cols)
+sample = x_test[idx]
+decoded_imgs = autoencoder.predict(sample)
+# 形状为(25, 32, 32, 1)
+print(decoded_imgs.shape)
+
+
+# 横排显示25张输入图片与输出图片的对比
+def decode_img(tile, factor=1.0):
+    tile = tile.reshape(tile.shape[:-1])
+    tile = np.clip(tile * 255, 0, 255)
+    return PIL.Image.fromarray(tile)
+    
+
+overview = PIL.Image.new('RGB', (cols * 32, 64 + 20), (128, 128, 128))
+for idx in range(cols):
+    overview.paste(decode_img(sample[idx]), (idx * 32, 5))
+    overview.paste(decode_img(decoded_imgs[idx]), (idx * 32, 42))
+f = BytesIO()
+overview.save(f, 'png')
+display(Image(data=f.getvalue()))
+
+
+
+
+
+
+# 
+batch_size = 250
+latent_space_depth = 64
+def sample_z(args):
+    z_mean, z_log_var = args
+    eps = K.random_normal(shape=(batch_size, latent_space_depth), mean=0., stddev=1.)
+    return z_mean + K.exp(z_log_var / 2) * eps
+
+# 构造变分自编码器
+def VariationalAutoEncoder(num_pixels):
+    """变分自编码器结构说明：
+        1.先5个串联block，每个block=2个卷积+1层连接+1层最大池化
+        2.然后是全连接+flatten+全连接+全连接+lambda_1+reshape
+        3.然后是5个block，每个block=1层卷积+1层上采样
+        4.最后一层是卷积层
+    """
+    
+    input_img = Input(shape=(32, 32, 1))
+
+    channels = 4
+    x = input_img
+    # 先5个串联block，每个block=2个卷积+1层连接+1层最大池化
+    for i in range(5):
+        left = Conv2D(channels, (3, 3), activation='relu', padding='same')(x)
+        right = Conv2D(channels, (2, 2), activation='relu', padding='same')(x)
+        conc = Concatenate()([left, right])
+        x = MaxPooling2D((2, 2), padding='same')(conc)
+        channels *= 2
+
+    # 然后是全连接+flatten+全连接+全连接+lambda_1+reshape
+    x = Dense(channels)(x)
+    encoder_hidden = Flatten()(x)
+
+    z_mean = Dense(latent_space_depth, activation='linear')(encoder_hidden)
+    z_log_var = Dense(latent_space_depth, activation='linear')(encoder_hidden)
+    
+    def KL_loss(y_true, y_pred):
+        return 0.0001 * K.sum(K.exp(z_log_var) + K.square(z_mean) - 1 - z_log_var, axis=1)
+
+    def reconstruction_loss(y_true, y_pred):
+        y_true = K.batch_flatten(y_true)
+        y_pred = K.batch_flatten(y_pred)
+        return binary_crossentropy(y_true, y_pred)
+
+    def total_loss(y_true, y_pred):
+        return reconstruction_loss(y_true, y_pred) + KL_loss(y_true, y_pred)
+
+    z = Lambda(sample_z, output_shape=(latent_space_depth, ))([z_mean, z_log_var])
+    decoder_in = Input(shape=(latent_space_depth,))
+
+    d_x = Reshape((1, 1, latent_space_depth))(decoder_in)
+    e_x = Reshape((1, 1, latent_space_depth))(z)
+    
+    # 然后是5个block，每个block=1层卷积+1层上采样
+    for i in range(5):
+        conv = Conv2D(channels, (3, 3), activation='relu', padding='same')
+        upsampling = UpSampling2D((2, 2))
+        d_x = conv(d_x)
+        d_x = upsampling(d_x)
+        e_x = conv(e_x)
+        e_x = upsampling(e_x)
+        channels //= 2
+    
+    # 最后一层是卷积层
+    final_conv = Conv2D(1, (3, 3), activation='sigmoid', padding='same')
+    auto_decoded = final_conv(e_x)
+    decoder_out = final_conv(d_x)
+    
+    decoder = Model(decoder_in, decoder_out)    
+    
+    auto_encoder = Model(input_img, auto_decoded)
+
+    auto_encoder.compile(optimizer=Adam(lr=0.001), 
+                         loss=total_loss,
+                         metrics=[KL_loss, reconstruction_loss])
+    
+    return auto_encoder, decoder
+
+variational_auto_encoder, variational_decoder = VariationalAutoEncoder(x_train.shape[1])
+variational_auto_encoder.summary()
+"""变分自编码器结构说明：
+1.先5个串联block，每个block=2个卷积+1层连接+1层最大池化
+2.然后是全连接+flatten+全连接+全连接+lambda_1+reshape
+3.然后是5个block，每个block=1层卷积+1层上采样
+4.最后一层是卷积层
+
+__________________________________________________________________________________________________
+Layer (type)                    Output Shape         Param #     Connected to                     
+==================================================================================================
+input_2 (InputLayer)            (None, 32, 32, 1)    0                                            
+__________________________________________________________________________________________________
+conv2d_14 (Conv2D)              (None, 32, 32, 4)    40          input_2[0][0]                    
+__________________________________________________________________________________________________
+conv2d_15 (Conv2D)              (None, 32, 32, 4)    20          input_2[0][0]                    
+__________________________________________________________________________________________________
+concatenate_5 (Concatenate)     (None, 32, 32, 8)    0           conv2d_14[0][0]                  
+                                                                 conv2d_15[0][0]                  
+__________________________________________________________________________________________________
+max_pooling2d_5 (MaxPooling2D)  (None, 16, 16, 8)    0           concatenate_5[0][0]              
+__________________________________________________________________________________________________
+conv2d_16 (Conv2D)              (None, 16, 16, 8)    584         max_pooling2d_5[0][0]            
+__________________________________________________________________________________________________
+conv2d_17 (Conv2D)              (None, 16, 16, 8)    264         max_pooling2d_5[0][0]            
+__________________________________________________________________________________________________
+concatenate_6 (Concatenate)     (None, 16, 16, 16)   0           conv2d_16[0][0]                  
+                                                                 conv2d_17[0][0]                  
+__________________________________________________________________________________________________
+max_pooling2d_6 (MaxPooling2D)  (None, 8, 8, 16)     0           concatenate_6[0][0]              
+__________________________________________________________________________________________________
+conv2d_18 (Conv2D)              (None, 8, 8, 16)     2320        max_pooling2d_6[0][0]            
+__________________________________________________________________________________________________
+conv2d_19 (Conv2D)              (None, 8, 8, 16)     1040        max_pooling2d_6[0][0]            
+__________________________________________________________________________________________________
+concatenate_7 (Concatenate)     (None, 8, 8, 32)     0           conv2d_18[0][0]                  
+                                                                 conv2d_19[0][0]                  
+__________________________________________________________________________________________________
+max_pooling2d_7 (MaxPooling2D)  (None, 4, 4, 32)     0           concatenate_7[0][0]              
+__________________________________________________________________________________________________
+conv2d_20 (Conv2D)              (None, 4, 4, 32)     9248        max_pooling2d_7[0][0]            
+__________________________________________________________________________________________________
+conv2d_21 (Conv2D)              (None, 4, 4, 32)     4128        max_pooling2d_7[0][0]            
+__________________________________________________________________________________________________
+concatenate_8 (Concatenate)     (None, 4, 4, 64)     0           conv2d_20[0][0]                  
+                                                                 conv2d_21[0][0]                  
+__________________________________________________________________________________________________
+max_pooling2d_8 (MaxPooling2D)  (None, 2, 2, 64)     0           concatenate_8[0][0]              
+__________________________________________________________________________________________________
+conv2d_22 (Conv2D)              (None, 2, 2, 64)     36928       max_pooling2d_8[0][0]            
+__________________________________________________________________________________________________
+conv2d_23 (Conv2D)              (None, 2, 2, 64)     16448       max_pooling2d_8[0][0]            
+__________________________________________________________________________________________________
+concatenate_9 (Concatenate)     (None, 2, 2, 128)    0           conv2d_22[0][0]                  
+                                                                 conv2d_23[0][0]                  
+__________________________________________________________________________________________________
+max_pooling2d_9 (MaxPooling2D)  (None, 1, 1, 128)    0           concatenate_9[0][0]              
+__________________________________________________________________________________________________
+dense_2 (Dense)                 (None, 1, 1, 128)    16512       max_pooling2d_9[0][0]            
+__________________________________________________________________________________________________
+flatten_1 (Flatten)             (None, 128)          0           dense_2[0][0]                    
+__________________________________________________________________________________________________
+dense_3 (Dense)                 (None, 64)           8256        flatten_1[0][0]                  
+__________________________________________________________________________________________________
+dense_4 (Dense)                 (None, 64)           8256        flatten_1[0][0]                  
+__________________________________________________________________________________________________
+lambda_1 (Lambda)               (None, 64)           0           dense_3[0][0]                    
+                                                                 dense_4[0][0]                    
+__________________________________________________________________________________________________
+reshape_2 (Reshape)             (None, 1, 1, 64)     0           lambda_1[0][0]                   
+__________________________________________________________________________________________________
+conv2d_24 (Conv2D)              (None, 1, 1, 128)    73856       reshape_2[0][0]                  
+__________________________________________________________________________________________________
+up_sampling2d_5 (UpSampling2D)  (None, 2, 2, 128)    0           conv2d_24[1][0]                  
+__________________________________________________________________________________________________
+conv2d_25 (Conv2D)              (None, 2, 2, 64)     73792       up_sampling2d_5[1][0]            
+__________________________________________________________________________________________________
+up_sampling2d_6 (UpSampling2D)  (None, 4, 4, 64)     0           conv2d_25[1][0]                  
+__________________________________________________________________________________________________
+conv2d_26 (Conv2D)              (None, 4, 4, 32)     18464       up_sampling2d_6[1][0]            
+__________________________________________________________________________________________________
+up_sampling2d_7 (UpSampling2D)  (None, 8, 8, 32)     0           conv2d_26[1][0]                  
+__________________________________________________________________________________________________
+conv2d_27 (Conv2D)              (None, 8, 8, 16)     4624        up_sampling2d_7[1][0]            
+__________________________________________________________________________________________________
+up_sampling2d_8 (UpSampling2D)  (None, 16, 16, 16)   0           conv2d_27[1][0]                  
+__________________________________________________________________________________________________
+conv2d_28 (Conv2D)              (None, 16, 16, 8)    1160        up_sampling2d_8[1][0]            
+__________________________________________________________________________________________________
+up_sampling2d_9 (UpSampling2D)  (None, 32, 32, 8)    0           conv2d_28[1][0]                  
+__________________________________________________________________________________________________
+conv2d_29 (Conv2D)              (None, 32, 32, 1)    73          up_sampling2d_9[1][0]            
+==================================================================================================
+Total params: 276,013
+Trainable params: 276,013
+Non-trainable params: 0
+__________________________________________________________________________________________________
+"""
+
+# 数据准备
+x_train_2 = x_train[:-(x_train.shape[0] % batch_size),:,: :]
+x_test_2 = x_test[:-(x_test.shape[0] % batch_size),:,: :]
+# 形状为((104500, 32, 32, 1), (18250, 32, 32, 1))
+print(x_train_2.shape, x_test_2.shape)
+
+# 变分自编码器的训练，约数小时。
+variational_auto_encoder.fit(x_train_2, x_train_2, verbose=1, 
+                 batch_size=batch_size, epochs=100,
+                 validation_data=(x_test_2, x_test_2))
+
+
+# ？？？
+random_number = np.asarray([[np.random.normal() 
+                            for _ in range(latent_space_depth)]])
+img_width, img_height = 32, 32
+def decode_img(a):
+    a = np.clip(a * 256, 0, 255).astype('uint8')
+    return PIL.Image.fromarray(a)
+
+decode_img(variational_decoder.predict(random_number).reshape(img_width, img_height))
