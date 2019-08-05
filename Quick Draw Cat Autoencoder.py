@@ -383,7 +383,7 @@ variational_auto_encoder.fit(x_train_2, x_train_2, verbose=1,
                  validation_data=(x_test_2, x_test_2))
 
 
-# ？？？
+# 生成一个形状为（1，latent_space_depth）的高斯随机数组random_number
 random_number = np.asarray([[np.random.normal() 
                             for _ in range(latent_space_depth)]])
 img_width, img_height = 32, 32
@@ -392,3 +392,23 @@ def decode_img(a):
     return PIL.Image.fromarray(a)
 
 decode_img(variational_decoder.predict(random_number).reshape(img_width, img_height))
+
+
+# 展示10*10的矩阵生成图
+num_cells = 10
+img_width = img_height = 32
+overview = PIL.Image.new('RGB', 
+                         (num_cells * (img_width + 4) + 8, 
+                          num_cells * (img_height + 4) + 8), 
+                         (140, 128, 128))
+
+for x in range(num_cells):
+    for y in range(num_cells):
+        vec = np.asarray([[np.random.normal() 
+                            for _ in range(latent_space_depth)]])
+        decoded = variational_decoder.predict(vec)
+        img = decode_img(decoded.reshape(img_width, img_height))
+        overview.paste(img, (x * (img_width + 4) + 6, y * (img_height + 4) + 6))
+overview
+
+
