@@ -383,6 +383,7 @@ variational_auto_encoder.fit(x_train_2, x_train_2, verbose=1,
                  validation_data=(x_test_2, x_test_2))
 
 
+# 生成一个解码图
 # 生成一个形状为（1，latent_space_depth）的高斯随机数组random_number
 random_number = np.asarray([[np.random.normal() 
                             for _ in range(latent_space_depth)]])
@@ -411,4 +412,22 @@ for x in range(num_cells):
         overview.paste(img, (x * (img_width + 4) + 6, y * (img_height + 4) + 6))
 overview
 
+#(1, 32, 32, 1)
+print(decoded.shape)
+
+# 展示10*10的逐渐变化图
+num_cells = 10
+
+overview = PIL.Image.new('RGB', 
+                         (num_cells * (img_width + 4) + 8, 
+                          num_cells * (img_height + 4) + 8), 
+                         (140, 128, 128))
+for x in range(num_cells):
+    for y in range(num_cells):
+        vec = np.asarray([[ - (i % 2) * (x - 4.5) / 3 + ((i + 1) % 2) * (y - 4.5) / 3
+                            for i in range(latent_space_depth)]])
+        decoded = variational_decoder.predict(vec)
+        img = decode_img(decoded.reshape(img_width, img_height))
+        overview.paste(img, (x * (img_width + 4) + 6, y * (img_height + 4) + 6))
+overview
 
